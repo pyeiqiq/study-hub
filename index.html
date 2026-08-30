@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#185fa5" />
+  <title>我刷题你炸了？</title>
+  <link rel="manifest" href="assets/manifest.webmanifest" />
+  <link rel="stylesheet" href="assets/css/style.css" />
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar"></aside>
+    <div id="main">
+      <header id="topbar">
+        <button id="menuBtn" class="icon-btn" aria-label="菜单">☰</button>
+        <div id="crumb" class="crumb"></div>
+        <div class="spacer"></div>
+        <button id="syncBtn" class="icon-btn" title="导出/导入数据">⇅</button>
+        <button id="themeBtn" class="icon-btn" title="切换护眼/日间">◐</button>
+      </header>
+      <main id="view"></main>
+    </div>
+    <nav id="tabbar"></nav>
+  </div>
+  <div id="sheet" class="sheet hidden"></div>
+  <div id="toast" class="toast hidden"></div>
+  <script src="assets/js/data.js"></script>
+  <script src="assets/js/data-extra.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>
