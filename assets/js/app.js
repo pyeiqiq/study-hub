@@ -56,24 +56,48 @@
       progress: {}, wrong: [], notes: [], favFormulas: [], favKp: [], plans: [], log: [],
       qstats: {},
       userQuestions: [],
-      settings: { theme: "light", ai: { endpoint: "", key: "", model: "" }, pomodoro: { focus: 25, break: 5 }, quizCount: 5 }
+      exams: [],          // 考试记录：{id, subject, ts, date, count, correct, score, durationMs, items:[{qid,chosen,ok}]}
+      aiUsage: {},        // AI 用量：{ 'YYYY-MM-DD': 次数 }
+      settings: {
+        theme: "light",
+        ai: { endpoint: "", key: "", model: "" },
+        pomodoro: { focus: 25, break: 5 },
+        quizCount: 5,
+        exam: { minutes: 60, count: 30 }   // 考试时长（分钟）与题数，总分恒为 100
+      }
     };
+  }
+  /** 用默认结构补全缺失字段，避免旧数据 / 云端数据缺字段导致崩溃 */
+  function mergeState(s) {
+    var d = defaultState();
+    if (!s || typeof s !== "object") return d;
+    for (var k in d) if (!(k in s)) s[k] = d[k];
+    if (!s.settings || typeof s.settings !== "object") s.settings = d.settings;
+    for (var sk in d.settings) if (!(sk in s.settings)) s.settings[sk] = d.settings[sk];
+    if (!s.settings.exam || typeof s.settings.exam !== "object") s.settings.exam = d.settings.exam;
+    else {
+      if (!(("minutes" in s.settings.exam))) s.settings.exam.minutes = 60;
+      if (!(("count" in s.settings.exam))) s.settings.exam.count = 30;
+    }
+    if (!s.settings.ai) s.settings.ai = d.settings.ai;
+    if (!s.settings.pomodoro) s.settings.pomodoro = d.settings.pomodoro;
+    if (!Array.isArray(s.exams)) s.exams = [];
+    if (!s.aiUsage || typeof s.aiUsage !== "object") s.aiUsage = {};
+    if (!s.subjLog || typeof s.subjLog !== "object") s.subjLog = {};
+    return s;
   }
   var state = load();
   function load() {
     try {
       var s = JSON.parse(localStorage.getItem(KEY));
-      if (s && s.settings) {
-        // 合并默认结构，补齐升级后新增的字段（如 qstats / settings.quizCount），避免旧数据缺字段导致崩溃
-        var d = defaultState();
-        for (var k in d) if (!(k in s)) s[k] = d[k];
-        for (var sk in d.settings) if (!(sk in s.settings)) s.settings[sk] = d.settings[sk];
-        return s;
-      }
+      if (s && s.settings) return mergeState(s);
     } catch (e) {}
     return defaultState();
   }
-  function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { toast("保存失败：" + e.message); } }
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { toast("保存失败：" + e.message); }
+    if (window.StudyCloud && StudyCloud.ready() && StudyCloud.current()) StudyCloud.pushData(state);
+  }
 
   /* ---------- ai presets ---------- */
   var AI_PRESETS = {
@@ -224,12 +248,15 @@
     chart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>',
     ai: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l1.8 4.2L18 9l-4.2 1.8L12 15l-1.8-4.2L6 9l4.2-1.8z"/><circle cx="18.5" cy="17.5" r="2"/><circle cx="5.5" cy="17.5" r="2"/></svg>',
     gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg>',
+    exam: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+    shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l7 3v6c0 4.2-2.9 7.7-7 9-4.1-1.3-7-4.8-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg>',
     more: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>'
   };
   var NAV = [
     { id: "home", label: "首页", icon: "home" },
     { id: "map", label: "知识地图", icon: "book" },
     { id: "quiz", label: "题库练习", icon: "list" },
+    { id: "exam", label: "模拟考试", icon: "exam" },
     { id: "wrong", label: "错题本", icon: "x" },
     { id: "formula", label: "公式速查", icon: "fx" },
     { id: "plan", label: "学习计划", icon: "cal" },
@@ -255,9 +282,9 @@
     document.querySelectorAll(".nav-item").forEach(function (a) {
       a.classList.toggle("active", a.dataset.view === r.view);
     });
-    $("#crumb").textContent = (NAV.find(function (n) { return n.id === r.view; }) || {}).label || "";
+    $("#crumb").textContent = ((NAV.concat([{ id: "admin", label: "管理后台" }])).find(function (n) { return n.id === r.view; }) || {}).label || "";
     closeSheet();
-    var map = { home: viewHome, map: viewMap, quiz: viewQuiz, wrong: viewWrong, formula: viewFormula, plan: viewPlan, stats: viewStats, ai: viewAI, settings: viewSettings };
+    var map = { home: viewHome, map: viewMap, quiz: viewQuiz, exam: viewExam, wrong: viewWrong, formula: viewFormula, plan: viewPlan, stats: viewStats, ai: viewAI, settings: viewSettings, admin: viewAdmin };
     (map[r.view] || viewHome)(r.params);
     var curPath = location.hash.replace(/^#\/?/, "").split("?")[0];
     if (curPath !== r.view) location.hash = "#/" + r.view;
@@ -419,7 +446,7 @@
     var want = count || state.settings.quizCount || 5;
     if (items.length < want) toast("当前范围只有 " + items.length + " 题，已全量练习");
     var picked = weightedPick(items, Math.min(want, items.length));
-    QZ = { items: picked, i: 0, chosen: null, revealed: false, correct: 0, wrong: [], answers: [] };
+    QZ = { items: picked, i: 0, chosen: null, revealed: false, correct: 0, wrong: [], answers: [], subject: subject };
     renderQuizCard();
   }
   // 加权随机抽题：常做对的题权重低、常错的题权重高，使练习更有针对性
@@ -553,21 +580,104 @@
   }
 
   /* ----- plan & pomodoro ----- */
-  var POMO = null;
-  function viewPlan() {
+  /* ---------- 学习计划：科目 → 章节 → 知识点 多选 ---------- */
+  var PLAN_SEL = { subject: null, open: {}, sel: {} };   // sel: kpId -> true
+
+  function renderPlanTree() {
+    var box = $("#planTree"); if (!box) return;
+    var subjId = PLAN_SEL.subject;
+    var chaps = SEED.map[subjId] || [];
+    var h = "";
+    chaps.forEach(function (c) {
+      var kps = c.kps || [];
+      if (!kps.length) return;
+      var nSel = kps.filter(function (k) { return PLAN_SEL.sel[k.id]; }).length;
+      var open = PLAN_SEL.open[c.id] || nSel > 0;
+      h += '<div class="chap-row' + (open ? " open" : "") + '" data-act="ptChap" data-cid="' + c.id + '">'
+        + '<span class="caret"></span>'
+        + '<span class="nm">' + esc(c.name) + '</span>'
+        + '<span class="cnt">' + (nSel ? nSel + " / " : "") + kps.length + '</span></div>';
+      if (open) {
+        h += '<div class="kp-grid">';
+        kps.forEach(function (k) {
+          var on = !!PLAN_SEL.sel[k.id];
+          h += '<label class="kp-pick' + (on ? " on" : "") + '" data-act="ptKp" data-kid="' + k.id + '">'
+            + '<input type="checkbox" ' + (on ? "checked" : "") + ' tabindex="-1"><span>' + esc(k.name) + "</span></label>";
+        });
+        h += "</div>";
+      }
+    });
+    if (!chaps.length) h = '<p class="small muted">该科目暂无章节数据</p>';
+    box.innerHTML = h;
+    renderPlanSel();
+  }
+
+  function renderPlanSel() {
+    var box = $("#planSelInfo"); if (!box) return;
+    var ids = Object.keys(PLAN_SEL.sel).filter(function (k) { return PLAN_SEL.sel[k]; });
+    if (!ids.length) { box.innerHTML = '<span class="small muted">尚未选择知识点</span>'; return; }
+    var byChap = {}, order = [];
+    ids.forEach(function (id) {
+      var cid = chapterOfKp(PLAN_SEL.subject, id) || "_";
+      if (!byChap[cid]) { byChap[cid] = []; order.push(cid); }
+      byChap[cid].push((kpOf(PLAN_SEL.subject, id) || {}).name || id);
+    });
+    var s = subj(PLAN_SEL.subject) || {};
+    var h = '<div class="sel-head">已选 <b>' + ids.length + "</b> 个知识点 · " + esc(s.name || "") + "</div>";
+    order.forEach(function (cid) {
+      var c = chapOf(PLAN_SEL.subject, cid);
+      h += '<div class="sel-line"><span class="sel-chap">' + esc(c ? c.name : "其他") + "</span>" + esc(byChap[cid].join("、")) + "</div>";
+    });
+    box.innerHTML = h;
+  }
+
+  function planText(p) {
+    if (p.text) return p.text;                    // 兼容旧版手写计划
+    var s = subj(p.subject) || {};
+    var byChap = {}, order = [];
+    (p.kps || []).forEach(function (o) {
+      var cid = o.chapId || chapterOfKp(p.subject, o.id) || "_";
+      if (!byChap[cid]) { byChap[cid] = []; order.push(cid); }
+      byChap[cid].push(o.name);
+    });
+    var parts = order.map(function (cid) {
+      var c = chapOf(p.subject, cid);
+      return (c ? c.name : "其他") + "：" + byChap[cid].join("、");
+    });
+    var prefix = s.name ? s.name + " · " : "";
+    return prefix + (parts.join("；") || "（无知识点）");
+  }
+
+  function viewPlan(params) {
+    params = params || {};
     var t = todayStr();
-    var html = '<h1 class="page-title">学习计划</h1><p class="page-sub">安排每日任务、用番茄钟专注、坚持打卡</p>';
-    html += '<div class="card"><div class="flex" style="gap:8px"><input id="planText" placeholder="今天要完成的事，如：复习牛顿第二定律"><button class="btn primary" data-act="addplan">添加</button></div>';
-    html += '<div class="field"><label>日期</label><input id="planDate" type="date" value="' + t + '"></div></div>';
+    if (params.subject) PLAN_SEL.subject = params.subject;
+    if (!PLAN_SEL.subject) PLAN_SEL.subject = SEED.subjects[0].id;
+
+    var html = '<h1 class="page-title">学习计划</h1><p class="page-sub">按科目 / 章节 / 知识点勾选任务，逐项打卡，配合番茄钟专注</p>';
+    html += '<div class="card">';
+    html += '<div class="field"><label>计划日期</label><input id="planDate" type="date" value="' + t + '"></div>';
+    html += '<div class="section-title">1. 选择科目</div>' + subjectChips(PLAN_SEL.subject, "plan", null);
+    html += '<div class="section-title">2. 勾选章节下的知识点（可多选）</div>';
+    html += '<div id="planTree" class="kp-tree"></div>';
+    html += '<div id="planSelInfo" class="plan-sel"></div>';
+    html += '<div class="flex wrap" style="gap:8px;margin-top:12px">'
+      + '<button class="btn primary" data-act="addplan">加入计划</button>'
+      + '<button class="btn ghost" data-act="ptClear">清空已选</button></div>';
+    html += "</div>";
+
     var groups = {};
     state.plans.forEach(function (p) { (groups[p.date] = groups[p.date] || []).push(p); });
     var dates = Object.keys(groups).sort().reverse();
+    if (!dates.length) {
+      html += '<div class="card center" style="margin-top:14px"><p class="small muted">还没有计划，先在上面勾选知识点吧</p></div>';
+    }
     dates.forEach(function (d) {
       html += '<div class="section-title">' + d + (d === t ? " · 今天" : "") + "</div>";
       groups[d].forEach(function (p) {
         html += '<div class="row"><label class="q-opt" style="margin:0;display:flex;align-items:center;gap:10px;flex:1;cursor:pointer">'
           + '<input type="checkbox" data-act="plancheck" data-id="' + p.id + '" ' + (p.done ? "checked" : "") + ' style="width:auto">'
-          + '<span class="' + (p.done ? "muted" : "") + '" style="text-decoration:' + (p.done ? "line-through" : "none") + '">' + esc(p.text) + '</span></label>'
+          + '<span class="' + (p.done ? "muted" : "") + '" style="text-decoration:' + (p.done ? "line-through" : "none") + '">' + esc(planText(p)) + '</span></label>'
           + '<button class="btn sm ghost" data-act="pdel" data-id="' + p.id + '">删</button></div>';
       });
     });
@@ -579,6 +689,7 @@
       + '<button class="btn" data-act="pomopause">暂停</button>'
       + '<button class="btn" data-act="pomoreset">重置</button></div></div>';
     view.innerHTML = html;
+    renderPlanTree();
     updatePomo();
   }
   function updatePomo() {
@@ -590,20 +701,45 @@
   function pad(n) { return String(n).padStart(2, "0"); }
 
   function viewStats() {
-    var html = '<h1 class="page-title">数据看板</h1><p class="page-sub">看见努力的轨迹与薄弱点</p>';
+    var t = todayStr();
+    var html = '<h1 class="page-title">数据看板</h1><p class="page-sub">看见努力的轨迹、掌握程度与考试起伏</p>';
     var totalMin = state.log.reduce(function (a, l) { return a + (l.minutes || 0); }, 0);
     var totalQ = state.log.reduce(function (a, l) { return a + (l.qCount || 0); }, 0);
     var totalCorrect = state.log.reduce(function (a, l) { return a + (l.correct || 0); }, 0);
     var acc = totalQ ? Math.round(totalCorrect / totalQ * 100) : 0;
+    var todayRec = state.log.find(function (l) { return l.date === t; }) || { minutes: 0, qCount: 0, correct: 0 };
+    var todayAcc = todayRec.qCount ? Math.round(todayRec.correct / todayRec.qCount * 100) : 0;
     html += '<div class="grid cols-4">';
-    html += statCard("累计学习", totalMin + " 分", "blue");
+    html += statCard("今日刷题", todayRec.qCount + " 题", "blue");
+    html += statCard("今日正确率", todayAcc + "%", "gold");
     html += statCard("累计题量", totalQ + " 题", "");
-    html += statCard("总正确率", acc + "%", "gold");
     html += statCard("连续打卡", calcStreak() + " 天", "");
     html += "</div>";
+
+    /* —— 今日分科目刷题数 / 正确率 —— */
+    var dayMap = (state.subjLog || {})[t] || {};
+    html += '<div class="section-title">今日刷题 · 分科目</div>';
+    html += '<div class="card"><div class="subj-stat">';
+    var anyToday = false;
+    SEED.subjects.forEach(function (s) {
+      var d = dayMap[s.id] || { qCount: 0, correct: 0 };
+      if (d.qCount) anyToday = true;
+      var a = d.qCount ? Math.round(d.correct / d.qCount * 100) : 0;
+      var w = d.qCount ? Math.max(2, Math.min(100, a)) : 0;
+      html += '<div class="ss-row">'
+        + '<div class="ss-name"><span class="dot" style="background:' + s.color + '"></span>' + esc(s.name) + '</div>'
+        + '<div class="ss-bar"><i style="width:' + w + "%;background:" + s.color + '"></i></div>'
+        + '<div class="ss-num">' + d.qCount + ' 题</div>'
+        + '<div class="ss-acc"' + (d.qCount ? ' style="color:' + s.color + '"' : "") + ">" + (d.qCount ? a + "%" : "—") + "</div></div>";
+    });
+    html += "</div>";
+    html += anyToday ? '<p class="small muted" style="margin-top:10px">进度条表示正确率高低。</p>'
+      : '<p class="small muted" style="margin-top:10px">今天还没有刷题记录，去「题库练习」或「模拟考试」开始吧。</p>';
+    html += "</div>";
+
     // weekly trend
-    var t = todayStr(); var days = [];
-    for (var i = 6; i >= 0; i--) { var d = addDays(t, -i); var m = state.log.filter(function (l) { return l.date === d; }).reduce(function (a, l) { return a + (l.minutes || 0); }, 0); days.push({ d: d, m: m }); }
+    var days = [];
+    for (var i = 6; i >= 0; i--) { var d2 = addDays(t, -i); var m = state.log.filter(function (l) { return l.date === d2; }).reduce(function (a, l) { return a + (l.minutes || 0); }, 0); days.push({ d: d2, m: m }); }
     var max = Math.max(1, Math.max.apply(null, days.map(function (x) { return x.m; })));
     html += '<div class="section-title">近 7 天学习时长（分钟）</div><div class="card"><div style="display:flex;align-items:flex-end;gap:10px;height:140px">';
     days.forEach(function (x) {
@@ -611,22 +747,76 @@
       html += '<div style="flex:1;text-align:center"><div title="' + x.m + ' 分" style="height:' + h + 'px;background:var(--primary);border-radius:6px 6px 0 0"></div><div class="small muted" style="margin-top:4px">' + fmtDate(x.d) + "</div></div>";
     });
     html += "</div></div>";
-    // radar
+
+    // 考试分数变化曲线
+    html += '<div class="section-title">考试分数变化（按科目）</div><div class="card">' + examCurve() + "</div>";
+
+    // radar —— 掌握度（越满越好）
     var vals = SEED.subjects.map(function (s) {
-      var kps = allKps(s.id); var prog = kps.length ? kps.reduce(function (a, o) { return a + (state.progress[o.kp.id] || 0); }, 0) / (kps.length * 3) : 1;
+      var kps = allKps(s.id);
+      var prog = kps.length ? kps.reduce(function (a, o) { return a + (state.progress[o.kp.id] || 0); }, 0) / (kps.length * 3) : 0;
       var wrongCnt = state.wrong.filter(function (w) { return w.subject === s.id; }).length;
-      var weak = 1 - prog + Math.min(1, wrongCnt / 5) * 0.5; weak = Math.min(1, Math.max(0.05, weak));
-      return { label: s.name, v: weak };
+      var penalty = Math.min(0.35, wrongCnt / 25);            // 错题越多，掌握度扣得越多（最多扣 35%）
+      var mastery = Math.max(0.04, Math.min(1, prog * (1 - penalty)));
+      return { label: s.name, v: mastery };
     });
-    html += '<div class="section-title">薄弱点雷达（越大越需关注）</div><div class="card radar-wrap">' + radarSVG(vals) + "</div>";
+    html += '<div class="section-title">学科掌握度雷达</div>'
+      + '<p class="small muted" style="margin:-6px 0 8px">六边形<b>越饱满表示该科目掌握得越好</b>；越往内凹说明越需要关注。数值 = 知识点自评进度 × 错题扣减。</p>'
+      + '<div class="card radar-wrap">' + radarSVG(vals) + "</div>";
     view.innerHTML = html;
+  }
+
+  /** 考试分数变化曲线：X 轴 = 考试时间，Y 轴 = 分数，按科目分线 */
+  function examCurve() {
+    var exams = (state.exams || []).slice().filter(function (e) { return e && e.ts; }).sort(function (a, b) { return a.ts - b.ts; });
+    if (!exams.length) return '<p class="small muted">还没有考试记录，去「模拟考试」考一场，这里就会出现你的成绩曲线。</p>';
+    var bySubj = {}, order = [];
+    exams.forEach(function (e) {
+      var k = e.subject || "_";
+      if (!bySubj[k]) { bySubj[k] = []; order.push(k); }
+      bySubj[k].push(e);
+    });
+    var W = 660, H = 230, pl = 34, pr = 14, pt = 12, pb = 26;
+    var all = exams.map(function (e) { return e.ts; });
+    var t0 = Math.min.apply(null, all), t1 = Math.max.apply(null, all);
+    if (t1 === t0) t1 = t0 + 60000;
+    function X(v) { return pl + (v - t0) / (t1 - t0) * (W - pl - pr); }
+    function Y(s) { return pt + (1 - s / 100) * (H - pt - pb); }
+
+    var g = "";
+    [0, 25, 50, 75, 100].forEach(function (v) {
+      g += '<line x1="' + pl + '" y1="' + Y(v).toFixed(1) + '" x2="' + (W - pr) + '" y2="' + Y(v).toFixed(1) + '" stroke="#e5e7eb" stroke-width="1"/>'
+        + '<text x="' + (pl - 6) + '" y="' + (Y(v) + 4).toFixed(1) + '" font-size="10" fill="#9ca3af" text-anchor="end">' + v + "</text>";
+    });
+    var body = "";
+    order.forEach(function (k) {
+      var arr = bySubj[k];
+      var col = (subj(k) || {}).color || "#185fa5";
+      var pts = arr.map(function (e) { return X(e.ts).toFixed(1) + "," + Y(e.score).toFixed(1); }).join(" ");
+      if (arr.length > 1) body += '<polyline points="' + pts + '" fill="none" stroke="' + col + '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>';
+      arr.forEach(function (e) {
+        body += '<circle cx="' + X(e.ts).toFixed(1) + '" cy="' + Y(e.score).toFixed(1) + '" r="3.6" fill="#fff" stroke="' + col + '" stroke-width="2">'
+          + "<title>" + esc(e.subjectName || "") + " " + e.date + " · " + e.score + " 分（" + e.correct + "/" + e.count + "）</title></circle>";
+      });
+    });
+    var xLab = '<text x="' + pl + '" y="' + (H - 8) + '" font-size="10" fill="#9ca3af">' + fmtDate(exams[0].date) + "</text>"
+      + '<text x="' + (W - pr) + '" y="' + (H - 8) + '" font-size="10" fill="#9ca3af" text-anchor="end">' + fmtDate(exams[exams.length - 1].date) + "</text>";
+    var legend = '<div class="flex wrap" style="gap:12px;margin-top:6px">';
+    order.forEach(function (k) {
+      var col = (subj(k) || {}).color || "#185fa5";
+      var arr = bySubj[k];
+      legend += '<span class="small"><span class="dot" style="background:' + col + ';display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px"></span>'
+        + esc((subj(k) || {}).name || k) + "（" + arr.length + " 次，平均 " + Math.round(arr.reduce(function (a, e) { return a + e.score; }, 0) / arr.length) + " 分）</span>";
+    });
+    legend += "</div>";
+    return '<svg width="100%" viewBox="0 0 ' + W + " " + H + '" role="img">' + g + body + xLab + "</svg>" + legend;
   }
   function radarSVG(values) {
     var cx = 130, cy = 130, r = 95, n = values.length, grid = "";
     for (var g = 1; g <= 4; g++) { var poly = []; for (var i = 0; i < n; i++) { var a = -Math.PI / 2 + i * 2 * Math.PI / n; var rr = r * g / 4; poly.push((cx + rr * Math.cos(a)).toFixed(1) + "," + (cy + rr * Math.sin(a)).toFixed(1)); } grid += '<polygon points="' + poly.join(" ") + '" fill="none" stroke="#e5e7eb" stroke-width="0.5"/>'; }
     var dp = []; for (var j = 0; j < n; j++) { var a2 = -Math.PI / 2 + j * 2 * Math.PI / n; var rr2 = r * Math.max(0.05, values[j].v); dp.push((cx + rr2 * Math.cos(a2)).toFixed(1) + "," + (cy + rr2 * Math.sin(a2)).toFixed(1)); }
     var labels = ""; for (var k = 0; k < n; k++) { var a3 = -Math.PI / 2 + k * 2 * Math.PI / n; var lx = cx + (r + 20) * Math.cos(a3), ly = cy + (r + 20) * Math.sin(a3); labels += '<text x="' + lx.toFixed(1) + '" y="' + ly.toFixed(1) + '" font-size="11" fill="#6b7280" text-anchor="middle" dominant-baseline="middle">' + values[k].label + "</text>"; }
-    return '<svg width="100%" viewBox="0 0 260 260" role="img"><polygon points="' + dp.join(" ") + '" fill="rgba(184,134,11,.18)" stroke="#b8860b" stroke-width="1.5"/>' + grid + labels + "</svg>";
+    return '<svg width="100%" viewBox="0 0 260 260" role="img"><polygon points="' + dp.join(" ") + '" fill="rgba(24,95,165,.18)" stroke="#185fa5" stroke-width="1.5"/>' + grid + labels + "</svg>";
   }
 
   /* ----- AI ----- */
@@ -668,13 +858,43 @@
   /* ----- settings ----- */
   function viewSettings() {
     var ai = state.settings.ai;
-    var html = '<h1 class="page-title">设置</h1><p class="page-sub">主题、同步、番茄钟、AI 接入配置</p>';
-    html += '<div class="card" style="margin-bottom:14px"><div class="section-title" style="margin-top:0">数据与同步</div>';
-    html += '<p class="small muted">本平台无服务器，数据存于本机浏览器。换设备时请「导出」再「导入」。</p>';
-    html += '<div class="flex wrap" style="gap:10px;margin-top:8px">'
-      + '<button class="btn primary" data-act="export">导出数据</button>'
+    var es = examSettings();
+    var html = '<h1 class="page-title">设置</h1><p class="page-sub">账号同步、考试规则、主题、番茄钟与 AI 接入配置</p>';
+
+    /* 账号与云同步 */
+    var C = window.StudyCloud, sUser = C ? C.current() : null;
+    html += '<div class="card" style="margin-bottom:14px"><div class="section-title" style="margin-top:0">账号与云同步</div>';
+    if (!C || !C.ready()) {
+      html += '<p class="small muted">当前未配置云端后端，学习数据只保存在本机浏览器。换设备请用下方的「导出 / 导入」。</p>';
+    } else if (sUser) {
+      html += '<p class="small muted">已登录 <b>' + esc(sUser.username) + '</b>' + (sUser.role === "admin" ? ' <span class="tag">管理员</span>' : '')
+        + '。学习数据会自动同步到云端，在其他设备登录同一账号即可看到同一份数据。</p>';
+      html += '<div class="flex wrap" style="gap:10px;margin-top:8px">'
+        + '<button class="btn" data-act="syncNow">立即同步到云端</button>'
+        + (sUser.role === "admin" ? '<button class="btn" data-act="goAdmin">管理后台</button>' : '')
+        + '<button class="btn" data-act="logout" style="border-color:var(--danger);color:var(--danger)">退出登录</button></div>';
+    } else {
+      html += '<p class="small muted">登录后学习数据存在云端，换设备也能继续。不登录也能正常使用，数据仅存本机。</p>';
+      html += '<div class="field"><label>账号</label><input id="stUser" placeholder="3-20 位，字母/数字/中文"></div>';
+      html += '<div class="field"><label>密码</label><input id="stPass" type="password" placeholder="至少 6 位"></div>';
+      html += '<div class="flex wrap" style="gap:10px">'
+        + '<button class="btn primary" data-act="stLogin">登录</button>'
+        + '<button class="btn" data-act="stReg">注册并登录</button></div>';
+    }
+    html += '<div class="flex wrap" style="gap:10px;margin-top:12px;border-top:1px solid var(--border);padding-top:10px">'
+      + '<button class="btn" data-act="export">导出数据</button>'
       + '<button class="btn" data-act="import">导入数据</button>'
       + '<button class="btn" data-act="exportWrong">仅导出错题本</button></div></div>';
+
+    /* 考试设置 */
+    html += '<div class="card" style="margin-bottom:14px"><div class="section-title" style="margin-top:0">考试设置</div>';
+    html += '<p class="small muted">模拟考试的题量与时长，<b>总分恒为 100 分</b>，每题分值按题数自动换算。</p>';
+    html += '<div class="field"><label>考试时长（分钟）</label><input id="exMin" type="number" min="1" max="300" value="' + es.minutes + '"></div>';
+    html += '<div class="field"><label>题目数量</label><input id="exCnt" type="number" min="1" max="200" value="' + es.count + '"></div>';
+    html += '<div class="small muted">当前：' + es.count + " 题 / " + es.minutes + " 分钟，每题约 "
+      + (100 / es.count).toFixed(2).replace(/0$/, "") + " 分。倒计时结束后仍可继续作答，成绩标记为「超时」。</div>";
+    html += '<button class="btn primary" data-act="saveExam" style="margin-top:10px">保存考试设置</button></div>';
+
     html += '<div class="card" style="margin-bottom:14px"><div class="section-title" style="margin-top:0">AI 接入设置</div>';
     html += '<p class="small muted">浏览器直连大模型（错题诊断 / 知识点讲解 / 智能出题 / AI 生成题目）。API Key 仅存本机浏览器，不上传服务器。</p>';
     html += '<div class="field"><label>服务商预设</label><select id="aiPreset">'
@@ -749,7 +969,31 @@
     else if (act === "importQ") { importQuestions(); }
     else if (act === "exportQ") { exportMyQuestions(); }
     else if (act === "plancheck") { var p = state.plans.find(function (x) { return x.id === t.dataset.id; }); if (p) { p.done = t.checked; save(); var dt = p.date; logStudy(dt, 0, 0, 0); render(); } }
-    else if (act === "addplan") { var txt = ($("#planText") || {}).value || ""; var dt2 = ($("#planDate") || {}).value || todayStr(); if (!txt.trim()) { toast("请输入内容"); return; } state.plans.push({ id: uid(), date: dt2, text: txt.trim(), done: false }); save(); render(); }
+    else if (act === "addplan") {
+      var dt2 = ($("#planDate") || {}).value || todayStr();
+      var ids = Object.keys(PLAN_SEL.sel).filter(function (k) { return PLAN_SEL.sel[k]; });
+      if (!ids.length) { toast("请先勾选要复习的知识点"); return; }
+      var kps = ids.map(function (id) {
+        return { id: id, name: (kpOf(PLAN_SEL.subject, id) || {}).name || id, chapId: chapterOfKp(PLAN_SEL.subject, id) };
+      });
+      state.plans.push({ id: uid(), date: dt2, subject: PLAN_SEL.subject, kps: kps, done: false, createdAt: todayStr() });
+      PLAN_SEL.sel = {}; PLAN_SEL.open = {}; save(); toast("已加入计划"); render();
+    }
+    else if (act === "ptChap") {
+      var cid = t.dataset.cid;
+      var kps2 = (chapOf(PLAN_SEL.subject, cid) || {}).kps || [];
+      var curOpen = (PLAN_SEL.open[cid] === undefined)
+        ? kps2.some(function (k) { return PLAN_SEL.sel[k.id]; })
+        : !!PLAN_SEL.open[cid];
+      PLAN_SEL.open[cid] = !curOpen;
+      renderPlanTree();
+    }
+    else if (act === "ptKp") {
+      var kid = t.dataset.kid;
+      if (PLAN_SEL.sel[kid]) delete PLAN_SEL.sel[kid]; else PLAN_SEL.sel[kid] = true;
+      renderPlanTree();
+    }
+    else if (act === "ptClear") { PLAN_SEL.sel = {}; renderPlanTree(); }
     else if (act === "pdel") { state.plans = state.plans.filter(function (x) { return x.id !== t.dataset.id; }); save(); render(); }
     else if (act === "wredo") { redoWrong(t.dataset.id); }
     else if (act === "wreason") { editReason(t.dataset.id); }
@@ -768,6 +1012,37 @@
     else if (act === "exportWrong") { exportData(true); }
     else if (act === "import") { importData(); }
     else if (act === "reset") { if (confirm("确定清空全部本地数据？此操作不可恢复。")) { localStorage.removeItem(KEY); state = defaultState(); save(); render(); toast("已清空"); } }
+    else if (act === "examStart") {
+      var xc = ($("#exChap") || {}).value || "", xk = ($("#exKp") || {}).value || "";
+      startExam(t.dataset.subject, xc, xk);
+    }
+    else if (act === "exOpt") { if (EX && EX.phase === "run") { EX.answers[EX.i] = +t.dataset.i; renderExamRun(); } }
+    else if (act === "exPrev") { if (EX && EX.i > 0) { EX.i--; renderExamRun(); } }
+    else if (act === "exNext") { if (EX && EX.i < EX.items.length - 1) { EX.i++; renderExamRun(); } }
+    else if (act === "exGo") { if (EX) { EX.i = +t.dataset.i; renderExamRun(); } }
+    else if (act === "exSubmit") { submitExam(); }
+    else if (act === "exBack") { EX = null; navigate("exam"); }
+    else if (act === "stLogin") { doLogin(false, "stUser", "stPass", "stLogin"); }
+    else if (act === "stReg") { doLogin(true, "stUser", "stPass", "stReg"); }
+    else if (act === "syncNow") {
+      toast("同步中…");
+      if (window.StudyCloud) StudyCloud.pushData(state, true).then(function () { toast("已同步到云端"); });
+      else toast("未配置云端后端");
+    }
+    else if (act === "logout") {
+      if (!confirm("退出登录后本机数据仍保留，确定退出？")) return;
+      if (window.StudyCloud) { StudyCloud.pushData(state, true); StudyCloud.logout(); }
+      buildShell(); renderAccount(); render(); toast("已退出登录");
+    }
+    else if (act === "goAdmin") { navigate("admin"); }
+    else if (act === "saveExam") {
+      var m = Math.max(1, Math.min(300, +($("#exMin") || {}).value || 60));
+      var c = Math.max(1, Math.min(200, +($("#exCnt") || {}).value || 30));
+      state.settings.exam = { minutes: m, count: c };
+      save(); toast("考试设置已保存"); render();
+    }
+    else if (act === "adminReload") { viewAdmin(); }
+    else if (act === "openAcct") { openAccountSheet(); }
     else if (act === "moresheet") { openMoreSheet(); }
   });
 
@@ -836,10 +1111,28 @@
       }
       closeSheet(); render();
     } else if (act === "reasonConfirm") { var w2 = state.wrong.find(function (x) { return x.id === t.dataset.id; }); if (w2) { w2.reason = ($("#reasonT") || {}).value || ""; save(); } closeSheet(); render(); }
+    else if (act === "doLogin") { doLogin(false); }
+    else if (act === "doReg") { doLogin(true); }
+    else if (act === "sheetClose") { closeSheet(); }
+    else if (act === "logout") {
+      if (!confirm("退出登录后本机数据仍保留，确定退出？")) return;
+      (window.StudyCloud ? StudyCloud.pushData(state, true) : Promise.resolve()).finally(function () {
+        StudyCloud.logout(); closeSheet(); buildShell(); renderAccount(); render(); toast("已退出登录");
+      });
+    }
+    else if (act === "syncNow") {
+      toast("同步中…");
+      (window.StudyCloud ? StudyCloud.pushData(state, true) : Promise.resolve()).then(function () {
+        toast("已上传本机数据"); closeSheet();
+      });
+    }
+    else if (act === "goAdmin") { closeSheet(); navigate("admin"); }
   });
   function openMoreSheet() {
     var h = '<h3>全部模块</h3>';
-    NAV.forEach(function (n) { h += '<a class="nav-item" href="#/' + n.id + '">' + ICON[n.icon] + "<span>" + n.label + "</span></a>"; });
+    var list = NAV.slice();
+    if (isAdmin()) list.push({ id: "admin", label: "管理后台", icon: "shield" });
+    list.forEach(function (n) { h += '<a class="nav-item" href="#/' + n.id + '">' + ICON[n.icon] + "<span>" + n.label + "</span></a>"; });
     openSheet(h);
   }
 
@@ -859,13 +1152,34 @@
   function pomoPause() { if (POMO && POMO.timer) { clearInterval(POMO.timer); POMO.timer = null; } }
 
   /* study log */
-  function logStudy(date, minutes, qCount, correct) {
+  function logStudy(date, minutes, qCount, correct, subject) {
     var rec = state.log.find(function (l) { return l.date === date; });
     if (!rec) { rec = { date: date, minutes: 0, qCount: 0, correct: 0 }; state.log.push(rec); }
-    rec.minutes += minutes; rec.qCount += qCount; rec.correct += correct; save();
+    rec.minutes += minutes; rec.qCount += qCount; rec.correct += correct;
+    if (subject && qCount) {
+      state.subjLog = state.subjLog || {};
+      var day = state.subjLog[date] = state.subjLog[date] || {};
+      var sd = day[subject] = day[subject] || { qCount: 0, correct: 0 };
+      sd.qCount += qCount; sd.correct += correct;
+    }
+    save();
+  }
+  /** 记录一次 AI 功能调用（管理员后台统计用） */
+  function logAIUsage(kind) {
+    var t = todayStr();
+    state.aiUsage = state.aiUsage || {};
+    state.aiUsage[t] = (state.aiUsage[t] || 0) + 1;
+    save();
+    if (window.StudyCloud && StudyCloud.ready() && StudyCloud.current()) {
+      StudyCloud.logEvent({ kind: "ai", meta: { fn: kind || "" } });
+    }
   }
   function finishQuiz() {
-    logStudy(todayStr(), 0, QZ.items.length, QZ.correct);
+    var qzSubject = QZ.subject || (QZ.items[0] || {}).subject || "";
+    logStudy(todayStr(), 0, QZ.items.length, QZ.correct, qzSubject);
+    if (window.StudyCloud && StudyCloud.ready() && StudyCloud.current()) {
+      StudyCloud.logEvent({ kind: "quiz", subject: qzSubject, qcount: QZ.items.length, correct: QZ.correct });
+    }
     var total = QZ.items.length, correct = QZ.correct;
     var r = total ? Math.round(correct / total * 100) : 0;
     var ans = QZ.answers || QZ.items.map(function () { return null; });
@@ -906,6 +1220,360 @@
     html += '</div>';
     html += '<div class="center" style="margin-top:18px"><button class="btn primary" data-act="quizExit">返回</button></div>';
     view.innerHTML = html; QZ = null;
+  }
+
+  /* ================= 模拟考试 ================= */
+  /* 分数段 → 称号 + 勉励语（延续「老爸陪琪琪刷题」的语气） */
+  var EXAM_BANDS = [
+    { min: 95, t: "学神降临", c: "#0f6e56", p: "这份卷子对你来说太温柔了。别飘，挑两道最难的题再啃一遍，学神也得练。" },
+    { min: 90, t: "满分预备役", c: "#185fa5", p: "离满分就差一点点。把错的那一两道彻底弄懂，下次就是满分本人。" },
+    { min: 80, t: "稳居上游", c: "#185fa5", p: "大局在握，细节还有空间。稳住这个节奏，你已经跑在大部分人前面了。" },
+    { min: 70, t: "稳扎稳打", c: "#b8860b", p: "基础是牢的，难点还差火候。把错题按类型归归类，一类一类吃掉它。" },
+    { min: 60, t: "及格线上", c: "#b8860b", p: "过了线，但有点晃。先回课本把概念吃透再刷题，顺序反了事倍功半。" },
+    { min: 40, t: "蓄力中", c: "#ba7517", p: "进步从来不是一条直线。今天错的题弄懂一道，就是实打实赚了一道。" },
+    { min: 0, t: "从头起步", c: "#993c1d", p: "每一份满分都是从一份低分开始的。别急，先把解析看懂，再来一次，你会看到差别。" }
+  ];
+  function examBand(score) {
+    for (var i = 0; i < EXAM_BANDS.length; i++) if (score >= EXAM_BANDS[i].min) return EXAM_BANDS[i];
+    return EXAM_BANDS[EXAM_BANDS.length - 1];
+  }
+  function examSettings() {
+    var e = state.settings.exam || {};
+    return { minutes: Math.max(1, Math.min(300, +e.minutes || 60)), count: Math.max(1, Math.min(200, +e.count || 30)) };
+  }
+  function fmtClock(s) { s = Math.max(0, Math.round(s)); return pad(Math.floor(s / 60)) + ":" + pad(s % 60); }
+  function fmtDur(ms) {
+    var s = Math.round((ms || 0) / 1000);
+    var m = Math.floor(s / 60); s = s % 60;
+    return m ? (m + " 分 " + s + " 秒") : (s + " 秒");
+  }
+
+  var EX = null;    // { phase:'run'|'result', items, answers, i, subject, subjectName, startTs, limitSec, record }
+  var EX_T = null;
+  var EX_LAST = { subject: null };
+
+  function viewExam(params) {
+    params = params || {};
+    if (EX && EX.phase === "run") { renderExamRun(); return; }
+    if (EX && EX.phase === "result") { renderExamResult(); return; }
+    renderExamHome(params);
+  }
+
+  function renderExamHome(params) {
+    var selSubject = params.subject || EX_LAST.subject || SEED.subjects[0].id;
+    EX_LAST.subject = selSubject;
+    var es = examSettings();
+    var selChap = params.chap || "", selKp = params.kp || "";
+    var kpc = kpQCount();
+    var chapOpts = (SEED.map[selSubject] || []).map(function (c) {
+      return '<option value="' + c.id + '"' + (c.id === selChap ? " selected" : "") + ">" + esc(c.name) + "</option>";
+    }).join("");
+    var kpList = selChap ? allKps(selSubject).filter(function (o) { return o.chap.id === selChap; }) : allKps(selSubject);
+    var kpOpts = kpList.map(function (o) {
+      return '<option value="' + o.kp.id + '"' + (o.kp.id === selKp ? " selected" : "") + ">" + esc(o.kp.name) + "（" + (kpc[o.kp.id] || 0) + "题）</option>";
+    }).join("");
+    var avail = allQuestions().filter(function (q) {
+      if (q.subject !== selSubject) return false;
+      if (selChap && q.chapter !== selChap) return false;
+      if (selKp && q.kp !== selKp) return false;
+      return true;
+    }).length;
+    var per = (100 / es.count);
+    var perTxt = (per >= 1 ? per.toFixed(1).replace(/\.0$/, "") : per.toFixed(2).replace(/0$/, "")) + " 分";
+
+    var html = '<h1 class="page-title">模拟考试</h1><p class="page-sub">限时成套测验，交卷后才公布分数、解析与用时</p>';
+    html += subjectChips(selSubject, "exam", null);
+    html += '<div class="card">';
+    html += '<div class="grid cols-3">'
+      + statCard("题量", es.count + " 题", "")
+      + statCard("时长", es.minutes + " 分钟", "blue")
+      + statCard("满分", "100 分", "gold") + "</div>";
+    html += '<p class="small muted" style="margin-top:10px">每题约 ' + perTxt + '，满分 100。<b>倒计时结束不会自动交卷</b>，你可以继续作答，成绩会标记为「超时」。</p>';
+    html += '<div class="field"><label>章节（可选）</label><select id="exChap"><option value="">全部章节</option>' + chapOpts + "</select></div>";
+    html += '<div class="field"><label>知识点（可选）</label><select id="exKp"><option value="">不限</option>' + kpOpts + "</select></div>";
+    html += '<div class="small muted">当前范围可抽题 <b>' + avail + "</b> 道"
+      + (avail < es.count ? "（不足 " + es.count + " 道，将按实际题量出题，分值等比例换算到 100 分）" : "") + "</div>";
+    html += '<div class="center" style="margin-top:16px"><button class="btn primary" data-act="examStart" data-subject="' + selSubject + '">开始考试</button></div>';
+    html += '<p class="small muted center" style="margin-top:8px">考试时长与题数可在「设置 → 考试设置」中调整</p>';
+    html += "</div>";
+
+    var list = (state.exams || []).slice().sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); }).slice(0, 10);
+    html += '<div class="section-title">最近考试记录</div>';
+    if (!list.length) html += '<div class="card"><p class="small muted">还没有考试记录，考一场看看自己的真实水平。</p></div>';
+    else list.forEach(function (e) {
+      var band = examBand(e.score);
+      html += '<div class="row"><div><div class="exam-score" style="color:' + band.c + '">' + e.score + '<span class="unit">分</span></div>'
+        + '<div class="small muted">' + esc(e.subjectName || "") + " · " + e.date + " · 用时 " + fmtDur(e.durationMs) + (e.overtime ? " · 超时" : "") + "</div></div>"
+        + '<div style="text-align:right"><span class="tag" style="border-color:' + band.c + ";color:" + band.c + '">' + esc(band.t) + "</span>"
+        + '<div class="small muted" style="margin-top:4px">' + e.correct + " / " + e.count + " 题</div></div></div>";
+    });
+    view.innerHTML = html;
+    var ch = $("#exChap"); if (ch) ch.onchange = function () { navigate("exam", { subject: selSubject, chap: this.value, kp: "" }); };
+    var kp = $("#exKp"); if (kp) kp.onchange = function () { navigate("exam", { subject: selSubject, chap: selChap, kp: this.value }); };
+  }
+
+  function startExam(subject, chap, kp) {
+    var es = examSettings();
+    var items = allQuestions().filter(function (q) {
+      if (q.subject !== subject) return false;
+      if (chap && q.chapter !== chap) return false;
+      if (kp && q.kp !== kp) return false;
+      return true;
+    });
+    if (!items.length) { toast("该范围暂无题目，请换个范围"); return; }
+    var n = Math.min(es.count, items.length);
+    var pool = items.slice(), picked = [];
+    while (picked.length < n && pool.length) picked.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+    EX = {
+      phase: "run", items: picked, answers: picked.map(function () { return null; }), i: 0,
+      subject: subject, subjectName: (subj(subject) || {}).name || subject,
+      startTs: Date.now(), limitSec: es.minutes * 60
+    };
+    if (EX_T) clearInterval(EX_T);
+    EX_T = setInterval(tickExam, 1000);
+    renderExamRun();
+  }
+
+  function examLeft() { return EX ? Math.round(EX.limitSec - (Date.now() - EX.startTs) / 1000) : 0; }
+  function tickExam() {
+    if (!EX || EX.phase !== "run") return;
+    var el = $("#exTimer");
+    if (el) {
+      var left = examLeft();
+      if (left >= 0) { el.textContent = fmtClock(left); el.classList.remove("over"); }
+      else { el.textContent = "超时 " + fmtClock(-left); el.classList.add("over"); }
+    }
+    var bar = $("#exBar");
+    if (bar) { var p = Math.max(0, Math.min(1, examLeft() / EX.limitSec)); bar.style.width = (p * 100).toFixed(1) + "%"; }
+  }
+
+  function renderExamRun() {
+    var q = EX.items[EX.i];
+    var answered = EX.answers.filter(function (a) { return a !== null; }).length;
+    var html = '<div class="exam-bar"><div class="exam-timer" id="exTimer">' + fmtClock(examLeft()) + '</div>'
+      + '<div class="exam-track"><i id="exBar"></i></div>'
+      + '<div class="small muted">第 ' + (EX.i + 1) + " / " + EX.items.length + " 题 · 已答 " + answered + " 题</div></div>";
+    html += '<h1 class="page-title">考试中 · ' + esc(EX.subjectName) + '</h1>';
+    html += '<div class="q-card"><div style="font-weight:500;margin-bottom:12px">' + (EX.i + 1) + ". " + esc(q.q) + "</div>";
+    q.options.forEach(function (opt, i) {
+      var on = EX.answers[EX.i] === i;
+      html += '<div class="q-opt' + (on ? " sel" : "") + '" data-act="exOpt" data-i="' + i + '">' + String.fromCharCode(65 + i) + ". " + esc(opt) + "</div>";
+    });
+    html += "</div>";
+    html += '<div class="flex between" style="margin-top:12px">'
+      + '<button class="btn" data-act="exPrev"' + (EX.i === 0 ? " disabled" : "") + ">上一题</button>"
+      + '<button class="btn" data-act="exNext"' + (EX.i >= EX.items.length - 1 ? " disabled" : "") + ">下一题</button></div>";
+    html += '<div class="section-title">答题卡</div><div class="card"><div class="sheet-grid">';
+    EX.items.forEach(function (_, i) {
+      var cls = (EX.answers[i] === null ? "" : " done") + (i === EX.i ? " cur" : "");
+      html += '<button class="cell' + cls + '" data-act="exGo" data-i="' + i + '">' + (i + 1) + "</button>";
+    });
+    html += "</div></div>";
+    html += '<div class="center" style="margin:18px 0"><button class="btn primary" data-act="exSubmit">交卷并查看结果</button></div>';
+    view.innerHTML = html;
+    tickExam();
+  }
+
+  function submitExam() {
+    var un = EX.answers.filter(function (a) { return a === null; }).length;
+    if (un && !confirm("还有 " + un + " 题未作答，确定交卷吗？")) return;
+    if (EX_T) { clearInterval(EX_T); EX_T = null; }
+    var durationMs = Date.now() - EX.startTs;
+    var correct = 0, items = [];
+    EX.items.forEach(function (q, i) {
+      var chosen = EX.answers[i], ok = (chosen === q.answer);
+      if (ok) correct++;
+      items.push({ qid: q.id, chosen: chosen, ok: ok });
+    });
+    var score = Math.round(correct / EX.items.length * 100);
+    var rec = {
+      id: uid(), subject: EX.subject, subjectName: EX.subjectName, ts: Date.now(), date: todayStr(),
+      count: EX.items.length, correct: correct, score: score, durationMs: durationMs,
+      overtime: durationMs > EX.limitSec * 1000, items: items
+    };
+    state.exams = state.exams || [];
+    state.exams.push(rec);
+    logStudy(todayStr(), Math.round(durationMs / 60000), EX.items.length, correct);
+    save();
+    if (window.StudyCloud && StudyCloud.ready() && StudyCloud.current()) {
+      StudyCloud.logEvent({ kind: "exam", subject: EX.subject, qcount: rec.count, correct: correct, score: score, duration_ms: durationMs, meta: { overtime: rec.overtime } });
+    }
+    EX.phase = "result"; EX.record = rec;
+    renderExamResult();
+  }
+
+  function renderExamResult() {
+    var r = EX.record;
+    var band = examBand(r.score);
+    var html = '<h1 class="page-title">考试结果</h1>';
+    html += '<div class="res-card center"><div class="ring" style="--p:' + r.score + '"><div class="ring-inner">' + r.score + '<span class="unit">分</span></div></div>'
+      + '<div class="small muted" style="margin-top:12px">答对 <b style="color:var(--text)">' + r.correct + "</b> / " + r.count
+      + " 题 · 总耗时 <b style=\"color:var(--text)\">" + fmtDur(r.durationMs) + "</b>" + (r.overtime ? ' <span class="tag warn">超时</span>' : "") + "</div></div>";
+    html += '<div class="res-card center"><div class="title-badge" style="border-color:' + band.c + ";color:" + band.c + '">' + esc(band.t) + "</div>"
+      + '<div class="phrase">' + esc(band.p) + "</div></div>";
+    html += '<div class="res-card"><div class="section-title" style="margin-top:0">答案与解析</div>';
+    EX.items.forEach(function (q, i) {
+      var it = r.items[i] || {};
+      var chosen = (it.chosen === undefined) ? null : it.chosen;
+      var ok = !!it.ok;
+      html += '<div class="rq"><div class="rq-head"><span class="rq-no">' + (i + 1) + '</span>'
+        + '<span class="rq-tag ' + (chosen === null ? "skip" : (ok ? "ok" : "no")) + '">' + (chosen === null ? "未答" : (ok ? "答对" : "答错")) + "</span></div>";
+      html += '<div class="rq-q">' + esc(q.q) + "</div>";
+      q.options.forEach(function (opt, oi) {
+        var cls = "rq-opt";
+        if (oi === q.answer) cls += " right";
+        else if (oi === chosen) cls += " wrong";
+        var mark = oi === q.answer ? "✓" : (oi === chosen ? "✗" : "");
+        html += '<div class="' + cls + '">' + String.fromCharCode(65 + oi) + ". " + esc(opt) + (mark ? ' <span class="rq-mark">' + mark + "</span>" : "") + "</div>";
+      });
+      if (q.explain) html += '<div class="rq-explain">解析：' + esc(q.explain) + "</div>";
+      html += "</div>";
+    });
+    html += "</div>";
+    html += '<div class="center" style="margin:18px 0"><button class="btn primary" data-act="exBack">返回考试首页</button></div>';
+    view.innerHTML = html;
+  }
+
+  /* ================= 管理后台（admin） ================= */
+  function fmtDateTime(iso) {
+    if (!iso) return "—";
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return "—";
+    return (d.getMonth() + 1) + "/" + d.getDate() + " " + pad(d.getHours()) + ":" + pad(d.getMinutes());
+  }
+  function viewAdmin() {
+    var C = window.StudyCloud;
+    var head = '<h1 class="page-title">管理后台</h1>';
+    if (!C || !C.ready()) { view.innerHTML = head + '<div class="card"><p class="small muted">未配置云端后端，无法查看用户数据。</p></div>'; return; }
+    var s = C.current();
+    if (!s) {
+      view.innerHTML = head + '<div class="card center"><p class="small muted">请先用管理员账号登录</p>'
+        + '<button class="btn primary" data-act="openAcct" style="margin-top:10px">登录</button></div>';
+      return;
+    }
+    if (s.role !== "admin") {
+      view.innerHTML = head + '<div class="card"><p class="small muted">当前账号「' + esc(s.username) + '」不是管理员，无法查看此页。</p></div>';
+      return;
+    }
+    view.innerHTML = head + '<div class="card center"><p class="small muted">正在加载用户数据…</p></div>';
+    C.adminOverview().then(renderAdmin).catch(function (e) {
+      view.innerHTML = head + '<div class="card"><p class="small muted">加载失败：' + esc(e.message || e) + '</p>'
+        + '<button class="btn" data-act="adminReload" style="margin-top:10px">重试</button></div>';
+    });
+  }
+
+  function renderAdmin(d) {
+    var users = d.users || [], events = d.events || [];
+    var t = todayStr();
+    var byUser = {}, order = [];
+    users.forEach(function (u) {
+      byUser[u.username] = {
+        u: u, activeMs: 0, lastTs: 0, dayQ: 0, dayC: 0, dayExam: 0,
+        totQ: 0, totC: 0, exams: [], ai: 0, days: {}
+      };
+      order.push(u.username);
+    });
+    function row(name) {
+      if (!byUser[name]) {
+        byUser[name] = { u: { username: name, role: "user" }, activeMs: 0, lastTs: 0, dayQ: 0, dayC: 0, dayExam: 0, totQ: 0, totC: 0, exams: [], ai: 0, days: {} };
+        order.push(name);
+      }
+      return byUser[name];
+    }
+    events.forEach(function (ev) {
+      var r = row(ev.username);
+      var ts = ev.ts ? Date.parse(ev.ts) : 0;
+      if (ts && ts > r.lastTs) r.lastTs = ts;
+      if (ev.kind === "active") { r.activeMs += (ev.duration_ms || 0); return; }
+      if (ev.kind === "login") return;
+      if (ev.kind === "ai") { r.ai++; return; }
+      if (ev.kind === "quiz" || ev.kind === "exam") {
+        r.totQ += (ev.qcount || 0); r.totC += (ev.correct || 0);
+        r.days[ev.date] = r.days[ev.date] || { q: 0, c: 0 };
+        r.days[ev.date].q += (ev.qcount || 0); r.days[ev.date].c += (ev.correct || 0);
+        if (ev.date === t) { r.dayQ += (ev.qcount || 0); r.dayC += (ev.correct || 0); }
+        if (ev.kind === "exam") { r.exams.push({ score: +ev.score || 0, date: ev.date, ts: ts }); if (ev.date === t) r.dayExam++; }
+      }
+    });
+
+    // 全站汇总
+    var totUsers = order.length;
+    var dayActive = order.filter(function (n) { return byUser[n].lastTs && new Date(byUser[n].lastTs).getTime() > Date.now() - 24 * 3600 * 1000; }).length;
+    var siteDayQ = 0, siteDayC = 0, siteDayExam = 0, siteAI = 0, siteTotQ = 0, siteTotC = 0;
+    order.forEach(function (n) {
+      var r = byUser[n];
+      siteDayQ += r.dayQ; siteDayC += r.dayC; siteDayExam += r.dayExam; siteAI += r.ai; siteTotQ += r.totQ; siteTotC += r.totC;
+    });
+    var siteAcc = siteTotQ ? Math.round(siteTotC / siteTotQ * 100) : 0;
+
+    var html = '<h1 class="page-title">管理后台</h1><p class="page-sub">全站用户的学习投入与成效概览</p>';
+    html += '<div class="grid cols-4">'
+      + statCard("注册用户", totUsers + " 人", "")
+      + statCard("近 24h 活跃", dayActive + " 人", "blue")
+      + statCard("今日刷题", siteDayQ + " 题", "")
+      + statCard("今日考试", siteDayExam + " 场", "gold")
+      + "</div>";
+    html += '<div class="grid cols-4">'
+      + statCard("累计刷题", siteTotQ + " 题", "")
+      + statCard("总平均正确率", siteAcc + "%", "blue")
+      + statCard("AI 调用", siteAI + " 次", "")
+      + statCard("考试场次", order.reduce(function (a, n) { return a + byUser[n].exams.length; }, 0) + " 场", "gold")
+      + "</div>";
+
+    // 近 7 天全站刷题量
+    var days = [];
+    for (var i = 6; i >= 0; i--) {
+      var dd = addDays(t, -i), q = 0;
+      order.forEach(function (n) { if (byUser[n].days[dd]) q += byUser[n].days[dd].q; });
+      days.push({ d: dd, q: q });
+    }
+    var mx = Math.max(1, Math.max.apply(null, days.map(function (x) { return x.q; })));
+    html += '<div class="section-title">近 7 天全站刷题量</div><div class="card"><div style="display:flex;align-items:flex-end;gap:10px;height:120px">';
+    days.forEach(function (x) {
+      var h = Math.round(x.q / mx * 90) + 4;
+      html += '<div style="flex:1;text-align:center"><div title="' + x.q + ' 题" style="height:' + h + 'px;background:var(--primary);border-radius:6px 6px 0 0"></div>'
+        + '<div class="small muted" style="margin-top:4px">' + fmtDate(x.d) + '</div>'
+        + '<div class="small muted">' + x.q + "</div></div>";
+    });
+    html += "</div></div>";
+
+    // 用户明细
+    html += '<div class="section-title">用户明细</div>';
+    if (!order.length) html += '<div class="card"><p class="small muted">还没有用户数据。</p></div>';
+    else {
+      html += '<div class="card" style="overflow-x:auto"><table class="tbl"><thead><tr>'
+        + '<th>用户</th><th>最后登录</th><th>累计在学</th><th>今日刷题</th><th>今日正确率</th>'
+        + '<th>今日考试</th><th>考试次数</th><th>平均分</th><th>最近得分</th><th>AI 次数</th><th>总刷题</th><th>总正确率</th>'
+        + "</tr></thead><tbody>";
+      order.sort(function (a, b) { return (byUser[b].lastTs || 0) - (byUser[a].lastTs || 0); });
+      order.forEach(function (n) {
+        var r = byUser[n];
+        var dayAcc = r.dayQ ? Math.round(r.dayC / r.dayQ * 100) : 0;
+        var totAcc = r.totQ ? Math.round(r.totC / r.totQ * 100) : 0;
+        var ex = r.exams.slice().sort(function (a, b) { return (a.ts || 0) - (b.ts || 0); });
+        var avg = ex.length ? Math.round(ex.reduce(function (a, e) { return a + e.score; }, 0) / ex.length) : 0;
+        var last = ex.length ? ex[ex.length - 1].score : null;
+        var band = last === null ? null : examBand(last);
+        html += "<tr>"
+          + '<td><b>' + esc(n) + "</b>" + (r.u.role === "admin" ? ' <span class="tag">管理员</span>' : "") + "</td>"
+          + "<td>" + fmtDateTime(r.u.last_login) + "</td>"
+          + "<td>" + (r.activeMs ? fmtDur(r.activeMs) : "—") + "</td>"
+          + "<td>" + (r.dayQ || "—") + "</td>"
+          + "<td>" + (r.dayQ ? dayAcc + "%" : "—") + "</td>"
+          + "<td>" + (r.dayExam || "—") + "</td>"
+          + "<td>" + (ex.length || "—") + "</td>"
+          + "<td>" + (ex.length ? avg : "—") + "</td>"
+          + "<td>" + (last === null ? "—" : '<b style="color:' + band.c + '">' + last + "</b>") + "</td>"
+          + "<td>" + (r.ai || "—") + "</td>"
+          + "<td>" + (r.totQ || "—") + "</td>"
+          + "<td>" + (r.totQ ? totAcc + "%" : "—") + "</td>"
+          + "</tr>";
+      });
+      html += "</tbody></table></div>";
+      html += '<p class="small muted" style="margin-top:8px">「累计在学」按页面持续活跃时间统计（页面不可见或 3 分钟无操作不计时）。事件采样上限 5000 条。</p>';
+    }
+    html += '<div class="center" style="margin:16px 0"><button class="btn" data-act="adminReload">刷新</button></div>';
+    view.innerHTML = html;
   }
 
   /* export / import */
@@ -972,6 +1640,7 @@
       toast("请先配置 AI（见本页上方）");
       return;
     }
+    logAIUsage(kind);
     var sys = "你是高中理科辅导老师，用中文、简明、易懂的方式回答，多举生活例子，避免冗长。";
     var user = "";
     if (kind === "diag") {
@@ -1161,33 +1830,134 @@
   }
 
   /* ---------- shell ---------- */
+  function isAdmin() { return !!(window.StudyCloud && StudyCloud.isAdmin()); }
   function buildShell() {
     var sb = "";
     sb += '<div class="brand"><div class="logo">炸</div><div class="name">我刷题你炸了？</div></div>';
-    NAV.forEach(function (n) { sb += '<a class="nav-item" data-view="' + n.id + '" href="#/' + n.id + '">' + ICON[n.icon] + "<span>" + n.label + "</span></a>"; });
+    var navList = NAV.slice();
+    if (isAdmin()) navList.push({ id: "admin", label: "管理后台", icon: "shield" });
+    navList.forEach(function (n) { sb += '<a class="nav-item" data-view="' + n.id + '" href="#/' + n.id + '">' + ICON[n.icon] + "<span>" + n.label + "</span></a>"; });
+    if (isAdmin()) $("#sidebar").classList.add("has-admin");
     $("#sidebar").innerHTML = sb;
 
     var tb = "";
     BOTTOM.forEach(function (id) {
       if (id === "more") tb += '<button class="nav-item" data-act="moresheet">' + ICON.more + "<span>更多</span></button>";
-      else { var n = NAV.find(function (x) { return x.id === id; }); tb += '<a class="nav-item" data-view="' + id + '" href="#/' + id + '">' + ICON[n.icon] + "<span>" + n.label + "</span></a>"; }
+      else { var n = NAV.find(function (x) { return x.id === id; }); if (n) tb += '<a class="nav-item" data-view="' + id + '" href="#/' + id + '">' + ICON[n.icon] + "<span>" + n.label + "</span></a>"; }
     });
     $("#tabbar").innerHTML = tb;
+  }
+
+  /* ---------- 账号 ---------- */
+  function renderAccount() {
+    var b = $("#acctBtn"); if (!b) return;
+    var C = window.StudyCloud;
+    var s = C ? C.current() : null;
+    if (s) {
+      b.textContent = s.username;
+      b.classList.add("on");
+      b.classList.toggle("adm", s.role === "admin");
+      b.title = "已登录：" + s.username + (s.role === "admin" ? "（管理员）" : "") + "，点击管理账号";
+    } else {
+      b.textContent = (C && C.ready()) ? "登录" : "本地模式";
+      b.classList.remove("on", "adm");
+      b.title = (C && C.ready()) ? "点击登录 / 注册，跨设备同步学习数据" : "未配置后端，数据仅存本机";
+    }
+  }
+  function openAccountSheet() {
+    var C = window.StudyCloud;
+    if (!C || !C.ready()) {
+      openSheet('<h3>账号与云同步</h3><p class="small muted">当前未配置云端后端，学习数据仅保存在本机浏览器。换设备时请用「设置」里的导出 / 导入。</p>'
+        + '<button class="btn primary" data-act="sheetClose" style="margin-top:12px">知道了</button>');
+      return;
+    }
+    var s = C.current();
+    if (s) {
+      openSheet('<h3>账号</h3>'
+        + '<p class="small muted">已登录：<b>' + esc(s.username) + '</b>' + (s.role === "admin" ? ' <span class="tag">管理员</span>' : '') + '</p>'
+        + '<p class="small muted">学习数据会自动同步到云端，在其他设备登录同一个账号即可看到同一份数据。</p>'
+        + '<div class="flex wrap" style="gap:8px;margin-top:12px">'
+        + (s.role === "admin" ? '<button class="btn" data-act="goAdmin">管理后台</button>' : '')
+        + '<button class="btn" data-act="syncNow">立即同步</button>'
+        + '<button class="btn" data-act="logout" style="border-color:var(--danger);color:var(--danger)">退出登录</button></div>');
+      return;
+    }
+    openSheet('<h3>登录 / 注册</h3>'
+      + '<p class="small muted">登录后学习数据存到云端，换设备也能继续。</p>'
+      + '<div class="field"><label>账号</label><input id="acUser" placeholder="字母/数字/中文，3-20 位"></div>'
+      + '<div class="field"><label>密码</label><input id="acPass" type="password" placeholder="至少 6 位"></div>'
+      + '<div class="flex wrap" style="gap:8px;margin-top:10px">'
+      + '<button class="btn primary" data-act="doLogin">登录</button>'
+      + '<button class="btn" data-act="doReg">注册并登录</button></div>'
+      + '<p class="small muted" style="margin-top:10px">提示：首次使用可注册任意账号；用户名填 <b>admin</b> 注册即为管理员。</p>');
+  }
+  function doLogin(isReg, uId, pId, btnAct) {
+    var C = window.StudyCloud;
+    uId = uId || "acUser"; pId = pId || "acPass";
+    if (!btnAct) btnAct = isReg ? "doReg" : "doLogin";
+    var u = (($("#" + uId) || {}).value || "").trim();
+    var p = ($("#" + pId) || {}).value || "";
+    if (!u || !p) { toast("请输入账号和密码"); return; }
+    var btn = document.querySelector('[data-act="' + btnAct + '"]');
+    if (btn) { btn.disabled = true; btn.textContent = "处理中…"; }
+    var act = isReg ? C.register(u, p) : C.login(u, p);
+    act.then(function () {
+      closeSheet();
+      toast(isReg ? "注册成功，已登录" : "登录成功");
+      buildShell(); renderAccount();
+      var d = C.pullData();
+      return d;
+    }).then(function (d) {
+      if (d && Object.keys(d).length) {
+        state = mergeState(d); save();
+        toast("已同步云端数据");
+      } else {
+        C.pushData(state, true);
+      }
+      render();
+    }).catch(function (e) {
+      toast((isReg ? "注册失败：" : "登录失败：") + (e.message || e));
+      if (btn) { btn.disabled = false; btn.textContent = isReg ? "注册并登录" : "登录"; }
+    });
+  }
+  /** 启动 / 登录态变化时拉取云端数据 */
+  function syncFromCloud(silent) {
+    var C = window.StudyCloud;
+    if (!C || !C.ready()) return Promise.resolve(null);
+    var s = C.current();
+    if (!s) return Promise.resolve(null);
+    if (!silent) toast("正在同步云端数据…");
+    return C.pullData().then(function (d) {
+      if (d && Object.keys(d).length) { state = mergeState(d); save(); if (!silent) toast("已同步云端数据"); }
+      else { C.pushData(state, true); }
+      return d;
+    }).catch(function (e) { if (!silent) toast("同步失败：" + (e.message || e)); return null; });
   }
   function applyTheme() { document.body.classList.toggle("eye", state.settings.theme === "eye"); }
 
   $("#menuBtn").addEventListener("click", function () { $("#sidebar").classList.toggle("open"); });
   $("#syncBtn").addEventListener("click", function () { navigate("settings"); });
   $("#themeBtn").addEventListener("click", function () { state.settings.theme = state.settings.theme === "eye" ? "light" : "eye"; save(); applyTheme(); });
+  var ab = $("#acctBtn"); if (ab) ab.addEventListener("click", openAccountSheet);
   window.addEventListener("hashchange", render);
+  // 关掉页面前把活跃时长刷到云端；考试中离开时提醒
+  window.addEventListener("beforeunload", function (e) {
+    if (window.StudyCloud && StudyCloud.current()) { try { StudyCloud.pushData(state, true); } catch (err) {} }
+    if (EX && EX.phase === "run") { e.preventDefault(); e.returnValue = "考试还没交卷，确定离开吗？"; }
+  });
 
   /* ---------- init ---------- */
   buildShell();
   applyTheme();
+  renderAccount();
   if ("serviceWorker" in navigator) {
     try {
       navigator.serviceWorker.register("sw.js").then(function (reg) { if (reg && reg.update) reg.update(); }).catch(function () {});
     } catch (e) {}
+  }
+  // 已登录则静默拉取云端数据（云端优先）
+  if (window.StudyCloud && StudyCloud.current()) {
+    syncFromCloud(true).then(function () { buildShell(); renderAccount(); render(); });
   }
   if (!location.hash) location.hash = "#/home";
   else render();
