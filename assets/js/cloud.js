@@ -124,25 +124,26 @@ window.StudyCloud = (function () {
       .catch(function () { return false; });
   }
 
-  /** 防抖同步：频繁保存时只在最后一次真正上传 */
+  /** 防抖同步：频繁保存时只在最后一次真正上传。总是返回 Promise（无 session 时返回已 resolve 的） */
   function pushData(data, immediate) {
-    if (!ready() || !session) return;
+    if (!ready() || !session) { pendingData = null; return Promise.resolve(false); }
     pendingData = data;
     if (immediate) {
       if (syncTimer) { clearTimeout(syncTimer); syncTimer = null; }
-      doFlush();
-      return;
+      return doFlush();
     }
     if (syncTimer) clearTimeout(syncTimer);
     syncTimer = setTimeout(doFlush, 1500);
+    return Promise.resolve(true);
   }
   function doFlush() {
     syncTimer = null;
-    if (!pendingData || syncing || !session) return;
+    if (!pendingData || !session) return Promise.resolve(false);
+    if (syncing) { pendingData = pendingData; return Promise.resolve(true); }
     syncing = true;
     var d = pendingData; pendingData = null;
-    pushDataNow(d).then(function () { syncing = false; if (pendingData) doFlush(); },
-      function () { syncing = false; });
+    return pushDataNow(d).then(function () { syncing = false; var more = !!pendingData; if (more) return doFlush(); return true; },
+      function () { syncing = false; return false; });
   }
 
   /* ---------- 埋点 ---------- */
