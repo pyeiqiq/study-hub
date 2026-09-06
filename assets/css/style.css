@@ -247,3 +247,97 @@ label { font-size: 12px; color: var(--text-2); display: block; margin: 10px 0 4p
 .rq-mark { font-weight: 800; margin-left: 4px; }
 .rq-explain { margin-top: 8px; font-size: 13px; color: var(--text-2); line-height: 1.6; }
 
+
+/* =========================================================
+   账号按钮
+   ========================================================= */
+.acct-btn {
+  padding: 6px 12px; border-radius: 999px; font-size: 12px;
+  border: 1px solid var(--border-2); background: var(--surface-2);
+  color: var(--text-2); max-width: 140px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+.acct-btn:hover { border-color: var(--primary); color: var(--primary); }
+.acct-btn.on { background: var(--primary-weak); border-color: #bcdcf5; color: var(--primary); font-weight: 600; }
+.acct-btn.adm { background: var(--gold-weak); border-color: #ecd9a6; color: var(--gold); }
+
+/* =========================================================
+   学习计划：科目 → 章节 → 知识点 多选树
+   ========================================================= */
+.kp-tree { max-height: 380px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.chap-row {
+  display: flex; align-items: center; gap: 8px; padding: 9px 12px;
+  cursor: pointer; border-bottom: 1px solid var(--border); background: var(--surface-2);
+  font-weight: 500;
+}
+.chap-row:hover { background: var(--primary-weak); }
+.chap-row .nm { flex: 1; }
+.chap-row .cnt { font-size: 11px; color: var(--text-3); font-weight: 400; }
+.caret {
+  width: 0; height: 0; border-left: 5px solid var(--text-3);
+  border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+  transition: transform .18s ease; flex-shrink: 0;
+}
+.chap-row.open .caret { transform: rotate(90deg); }
+.kp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; padding: 10px 12px; }
+.kp-pick {
+  display: flex; align-items: flex-start; gap: 7px; padding: 7px 9px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  font-size: 12.5px; cursor: pointer; background: var(--surface); line-height: 1.4;
+}
+.kp-pick input { pointer-events: none; margin: 3px 0 0; width: 14px; height: 14px; accent-color: var(--primary); flex-shrink: 0; }
+.kp-pick:hover { border-color: var(--primary); }
+.kp-pick.on { border-color: var(--primary); background: var(--primary-weak); color: var(--primary); font-weight: 500; }
+.plan-sel { margin-top: 12px; padding: 10px 12px; background: var(--surface-2); border-radius: var(--radius-sm); }
+.sel-head { font-size: 13px; margin-bottom: 6px; }
+.sel-line { font-size: 12.5px; color: var(--text-2); margin-top: 3px; }
+.sel-chap { color: var(--text-3); margin-right: 6px; }
+
+/* =========================================================
+   模拟考试
+   ========================================================= */
+.exam-bar {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 10px 14px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); margin-bottom: 14px; box-shadow: var(--shadow);
+}
+.exam-timer { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--primary); letter-spacing: .02em; }
+.exam-timer.over { color: var(--warn); }
+.exam-track { flex: 1; min-width: 120px; height: 6px; background: var(--surface-2); border-radius: 999px; overflow: hidden; }
+.exam-track i { display: block; height: 100%; background: var(--primary); border-radius: 999px; transition: width .5s linear; }
+.sheet-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(38px, 1fr)); gap: 6px; }
+.sheet-grid .cell {
+  height: 34px; border: 1px solid var(--border-2); border-radius: var(--radius-sm);
+  background: var(--surface); font-size: 12.5px; color: var(--text-2); padding: 0;
+}
+.sheet-grid .cell:hover { border-color: var(--primary); color: var(--primary); }
+.sheet-grid .cell.done { background: var(--primary-weak); border-color: #bcdcf5; color: var(--primary); font-weight: 600; }
+.sheet-grid .cell.cur { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(24, 95, 165, .16); color: var(--primary); }
+.exam-score { font-size: 26px; font-weight: 700; line-height: 1.1; }
+.exam-score .unit, .ring-inner .unit { font-size: 13px; font-weight: 500; margin-left: 2px; }
+.tag.warn { background: #fdf3e3; color: var(--warn); border-color: #edd6a8; }
+
+/* =========================================================
+   数据看板：分科目统计 + 管理后台表格
+   ========================================================= */
+.subj-stat { display: flex; flex-direction: column; gap: 8px; }
+.ss-row { display: grid; grid-template-columns: 76px 1fr 62px 52px; align-items: center; gap: 10px; }
+.ss-name { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.ss-name .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.ss-bar { height: 8px; background: var(--surface-2); border-radius: 999px; overflow: hidden; }
+.ss-bar i { display: block; height: 100%; border-radius: 999px; transition: width .3s ease; }
+.ss-num { font-size: 12.5px; color: var(--text-2); text-align: right; }
+.ss-acc { font-size: 13px; font-weight: 600; text-align: right; color: var(--text-3); }
+
+.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; min-width: 860px; }
+.tbl th, .tbl td { padding: 9px 10px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.tbl th { color: var(--text-2); font-weight: 600; background: var(--surface-2); position: sticky; top: 0; }
+.tbl tbody tr:hover { background: var(--surface-2); }
+.tbl td b { font-weight: 600; }
+
+@media (max-width: 720px) {
+  .grid.cols-4 { grid-template-columns: repeat(2, 1fr); }
+  .grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+  .ss-row { grid-template-columns: 64px 1fr 52px 44px; gap: 7px; }
+  .exam-timer { font-size: 20px; }
+}
