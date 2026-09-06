@@ -1031,7 +1031,8 @@
     }
     else if (act === "logout") {
       if (!confirm("退出登录后本机数据仍保留，确定退出？")) return;
-      if (window.StudyCloud) { StudyCloud.pushData(state, true); StudyCloud.logout(); }
+      try { if (window.StudyCloud && StudyCloud.pushData) StudyCloud.pushData(state, true); } catch (err) {}
+      try { if (window.StudyCloud && StudyCloud.logout) StudyCloud.logout(); } catch (err) {}
       buildShell(); renderAccount(); render(); toast("已退出登录");
     }
     else if (act === "goAdmin") { navigate("admin"); }
@@ -1096,8 +1097,12 @@
   }
 
   /* sheet */
-  function openSheet(html) { var s = $("#sheet"); s.innerHTML = '<div class="panel">' + html + "</div>"; s.classList.remove("hidden"); }
-  function closeSheet() { var s = $("#sheet"); s.classList.add("hidden"); s.innerHTML = ""; }
+  function openSheet(html, center) {
+    var s = $("#sheet"); s.innerHTML = '<div class="panel">' + html + "</div>";
+    s.classList.toggle("center", !!center);
+    s.classList.remove("hidden");
+  }
+  function closeSheet() { var s = $("#sheet"); s.classList.add("hidden"); s.classList.remove("center"); s.innerHTML = ""; }
   $("#sheet").addEventListener("click", function (e) {
     if (e.target.id === "sheet") { closeSheet(); return; }
     var t = e.target.closest("[data-act]"); if (!t) return;
@@ -1116,15 +1121,14 @@
     else if (act === "sheetClose") { closeSheet(); }
     else if (act === "logout") {
       if (!confirm("退出登录后本机数据仍保留，确定退出？")) return;
-      (window.StudyCloud ? StudyCloud.pushData(state, true) : Promise.resolve()).finally(function () {
-        StudyCloud.logout(); closeSheet(); buildShell(); renderAccount(); render(); toast("已退出登录");
-      });
+      try { if (window.StudyCloud) StudyCloud.pushData(state, true); } catch (err) {}
+      try { if (window.StudyCloud && StudyCloud.logout) StudyCloud.logout(); } catch (err) {}
+      closeSheet(); buildShell(); renderAccount(); render(); toast("已退出登录");
     }
     else if (act === "syncNow") {
       toast("同步中…");
-      (window.StudyCloud ? StudyCloud.pushData(state, true) : Promise.resolve()).then(function () {
-        toast("已上传本机数据"); closeSheet();
-      });
+      if (window.StudyCloud) StudyCloud.pushData(state, true).then(function () { toast("已上传本机数据"); closeSheet(); });
+      else { toast("未配置云端后端"); }
     }
     else if (act === "goAdmin") { closeSheet(); navigate("admin"); }
   });
@@ -1866,9 +1870,10 @@
   }
   function openAccountSheet() {
     var C = window.StudyCloud;
+    var center = true;   // 账号面板始终居中显示
     if (!C || !C.ready()) {
       openSheet('<h3>账号与云同步</h3><p class="small muted">当前未配置云端后端，学习数据仅保存在本机浏览器。换设备时请用「设置」里的导出 / 导入。</p>'
-        + '<button class="btn primary" data-act="sheetClose" style="margin-top:12px">知道了</button>');
+        + '<button class="btn primary" data-act="sheetClose" style="margin-top:12px">知道了</button>', center);
       return;
     }
     var s = C.current();
@@ -1879,7 +1884,7 @@
         + '<div class="flex wrap" style="gap:8px;margin-top:12px">'
         + (s.role === "admin" ? '<button class="btn" data-act="goAdmin">管理后台</button>' : '')
         + '<button class="btn" data-act="syncNow">立即同步</button>'
-        + '<button class="btn" data-act="logout" style="border-color:var(--danger);color:var(--danger)">退出登录</button></div>');
+        + '<button class="btn" data-act="logout" style="border-color:var(--danger);color:var(--danger)">退出登录</button></div>', center);
       return;
     }
     openSheet('<h3>登录 / 注册</h3>'
@@ -1889,7 +1894,7 @@
       + '<div class="flex wrap" style="gap:8px;margin-top:10px">'
       + '<button class="btn primary" data-act="doLogin">登录</button>'
       + '<button class="btn" data-act="doReg">注册并登录</button></div>'
-      + '<p class="small muted" style="margin-top:10px">提示：首次使用可注册任意账号；用户名填 <b>admin</b> 注册即为管理员。</p>');
+      + '<p class="small muted" style="margin-top:10px">提示：首次使用可注册任意账号；用户名填 <b>admin</b> 注册即为管理员。</p>', center);
   }
   function doLogin(isReg, uId, pId, btnAct) {
     var C = window.StudyCloud;
