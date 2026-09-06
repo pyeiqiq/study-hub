@@ -1,10 +1,13 @@
 /* 离线缓存：缓存应用外壳，联网时更新。注册于 app.js。 */
-const CACHE = "studyHub-v2";
+const CACHE = "studyHub-v3";
 const SHELL = [
   "./",
   "./index.html",
   "./assets/css/style.css",
   "./assets/js/data.js",
+  "./assets/js/config.js",
+  "./assets/js/sha256.js",
+  "./assets/js/cloud.js",
   "./assets/js/app.js",
   "./assets/manifest.webmanifest",
   "./assets/img/icon.svg"
